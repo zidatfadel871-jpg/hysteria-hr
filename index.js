@@ -14,17 +14,22 @@ app.use(session({
     saveUninitialized: false
 }));
 
-// بيانات الديسكورد الخاصة بسيرفرك
+// بيانات الديسكورد
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID || '1499397022174674944';
 const CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET || 'zcNjt4DCKJmbjRf__QGIM-wh24NEi_Ub';
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || 'DMTQ5OTM5NTNzAyMjE3NDk0NA.GmKHE6.s4cBT2NFKczNgbUEanJXGMYMPCaFO9sBKwps3Y';
-const GUILD_ID = process.env.DISCORD_GUILD_ID || '1499394752456429628';
 const REDIRECT_URI = process.env.REDIRECT_URI || 'https://hysteria-hr.onrender.com/auth/discord/callback';
 
-// خريطة الرتب (ضع هنا Role IDs الحقيقية من سيرفر الديسكورد)
+// قائمة آيديات السيرفرين (أدخل الآيدي الخاص بالسيرفر الثاني مكان الرقم الثاني)
+const GUILD_IDS = [
+    '1526566119974899763', // السيرفر الأول
+    '1499394752456429628'  // السيرفر الثاني (ضع ID السيرفر الثاني هنا)
+];
+
+// خريطة الرتب (ضع هنا Role IDs من السيرفرين)
 const ROLES_MAP = {
-    '123456789012345678': 'مسؤول',  // استبدل هذا الرقم بـ Role ID المسؤولين
-    '987654321098765432': 'جندي',   // استبدل هذا الرقم بـ Role ID الجنود
+    '1526566710620983359': 'مسؤول',  // Role ID مسؤول
+    '1526567268522135612': 'جندي',   // Role ID جندي
 };
 
 app.get('/login', (req, res) => {
@@ -55,32 +60,42 @@ app.get('/auth/discord/callback', async (req, res) => {
         const user = userResponse.data;
 
         let assignedRole = 'عضو';
-        try {
-            const memberResponse = await axios.get(`https://discord.com/api/guilds/${GUILD_ID}/members/${user.id}`, {
-                headers: { Authorization: `Bot ${BOT_TOKEN}` }
-            });
-            const userRoles = memberResponse.data.roles;
+        let foundInAnyGuild = false;
 
-            for (const roleId of userRoles) {
-                if (ROLES_MAP[roleId]) {
-                    assignedRole = ROLES_MAP[roleId];
-                    break;
+        // البحث في السيرفرين المحددين
+        for (const guildId of GUILD_IDS) {
+            try {
+                const memberResponse = await axios.get(`https://discord.com/api/guilds/${guildId}/members/${user.id}`, {
+                    headers: { Authorization: `Bot ${BOT_TOKEN}` }
+                });
+                
+                foundInAnyGuild = true;
+                const userRoles = memberResponse.data.roles;
+
+                for (const roleId of userRoles) {
+                    if (ROLES_MAP[roleId]) {
+                        assignedRole = ROLES_MAP[roleId];
+                        break;
+                    }
                 }
+                // إذا وجدنا رتبة خاصة، نكتفي بها ونخرج من حلقة البحث
+                if (assignedRole !== 'عضو') break;
+            } catch (err) {
+                // العضو غير موجود في هذا السيرفر المحدد
             }
-        } catch (botErr) {
-            console.log('لم يتم العثور على العضو في السيرفر أو البوت يفتقر للصلاحيات');
         }
 
         req.session.user = {
             username: user.username,
             avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png` : 'https://cdn.discordapp.com/embed/avatars/0.png',
-            role: assignedRole
+            role: assignedRole,
+            isInGuild: foundInAnyGuild
         };
 
         res.redirect('/');
     } catch (error) {
         console.error(error.response ? error.response.data : error.message);
-        res.send('حدث خطأ أثناء الاتصال بـ Discord. التأكد من صلاحيات البوت وربط Redirect URI.');
+        res.send('حدث خطأ أثناء الاتصال بـ Discord. التأكد من إضافة البوت للسيرفرين وترخيص المعرفات.');
     }
 });
 
@@ -99,13 +114,12 @@ app.get('/', (req, res) => {
                     .card { max-width: 500px; margin: 0 auto; background: #1e293b; padding: 40px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
                     h1 { color: #38bdf8; margin-bottom: 10px; }
                     .btn-discord { display: inline-block; margin-top: 25px; padding: 12px 30px; background: #5865F2; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; }
-                    .btn-discord:hover { background: #4752C4; }
                 </style>
             </head>
             <body>
                 <div class="card">
                     <h1>Hysteria HR Portal</h1>
-                    <p>بوابة التوظيف الرسمية الخاصة بسيرفر Hysteria</p>
+                    <p>بوابة التوظيف الرسمية الخاصة بسيرفرات Hysteria</p>
                     <a href="/login" class="btn-discord">تسجيل الدخول عبر Discord</a>
                 </div>
             </body>
@@ -130,9 +144,9 @@ app.get('/', (req, res) => {
             <div class="card">
                 <img src="${user.avatar}" class="avatar">
                 <h2>أهلاً بك، ${user.username}</h2>
-                <div>الرتبة في السيرفر: <span class="role-badge">${user.role}</span></div>
+                <div>الرتبة المعتمدة: <span class="role-badge">${user.role}</span></div>
                 <hr style="margin: 30px 0; border-color: #334155;">
-                <p>${user.role === 'مسؤول' ? 'أهلاً بك يا قائد، لديك صلاحيات كاملة لإدارة الطلبات.' : 'يمكنك الآن تعبئة طلب الانضمام ومتابعة حالة ملفك.'}</p>
+                <p>${user.role === 'مسؤول' ? 'أهلاً بك يا قائد، لديك صلاحيات كاملة لإدارة الطلبات.' : 'يمكنك الآن تقديم الطلبات ومتابعة ملفك.'}</p>
             </div>
         </body>
         </html>
